@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Movie Review Sentiment Analyzer</title>
+  <meta name="description" content="Analyze movie review sentiment using a fine-tuned DistilBERT transformer. Paste any review and get an instant positive/negative prediction with confidence score." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Reset & Base ─────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0c0c14;
+      --surface:   #14141f;
+      --surface-2: #1c1c2e;
+      --border:    #2a2a40;
+      --text:      #e4e4ed;
+      --text-dim:  #8888a4;
+      --accent:    #7c5cfc;
+      --accent-hover: #6a48e6;
+      --accent-glow: rgba(124, 92, 252, .25);
+      --positive:  #34d399;
+      --positive-bg: rgba(52, 211, 153, .08);
+      --negative:  #f87171;
+      --negative-bg: rgba(248, 113, 113, .08);
+      --error:     #f87171;
+      --radius:    14px;
+      --font:      'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    html { font-size: 16px; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1rem;
+      /* subtle radial glow behind the card */
+      background-image: radial-gradient(ellipse 60% 50% at 50% 30%, rgba(124, 92, 252, .08) 0%, transparent 70%);
+    }
+
+    /* ── Card ─────────────────────────────────────────── */
+    .card {
+      width: 100%;
+      max-width: 580px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2.5rem 2rem 2rem;
+      box-shadow: 0 4px 48px rgba(0, 0, 0, .45), 0 0 0 1px rgba(255,255,255,.03) inset;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* top accent bar */
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--accent), #a78bfa, var(--accent));
+      background-size: 200% 100%;
+      animation: shimmer 4s ease-in-out infinite;
+    }
+
+    @keyframes shimmer {
+      0%, 100% { background-position: 0% 50%; }
+      50%      { background-position: 100% 50%; }
+    }
+
+    /* ── Header ───────────────────────────────────────── */
+    .header { text-align: center; margin-bottom: 2rem; }
+
+    .header h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -.02em;
+      margin-bottom: .35rem;
+    }
+
+    .header p {
+      font-size: .85rem;
+      color: var(--text-dim);
+      font-weight: 400;
+    }
+
+    /* ── Textarea ─────────────────────────────────────── */
+    .input-group { position: relative; margin-bottom: .35rem; }
+
+    #review-input {
+      width: 100%;
+      min-height: 140px;
+      padding: 1rem 1.15rem;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      font-family: var(--font);
+      font-size: .92rem;
+      line-height: 1.6;
+      resize: vertical;
+      transition: border-color .2s, box-shadow .2s;
+    }
+
+    #review-input::placeholder { color: var(--text-dim); }
+
+    #review-input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+
+    .char-count {
+      text-align: right;
+      font-size: .75rem;
+      color: var(--text-dim);
+      margin-bottom: 1rem;
+      padding-right: .25rem;
+    }
+
+    /* ── Button ───────────────────────────────────────── */
+    #analyze-btn {
+      width: 100%;
+      padding: .85rem 0;
+      background: var(--accent);
+      color: #fff;
+      font-family: var(--font);
+      font-weight: 600;
+      font-size: .95rem;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background .2s, transform .1s, box-shadow .2s;
+      position: relative;
+    }
+
+    #analyze-btn:hover:not(:disabled) {
+      background: var(--accent-hover);
+      box-shadow: 0 4px 20px var(--accent-glow);
+    }
+
+    #analyze-btn:active:not(:disabled) { transform: scale(.985); }
+
+    #analyze-btn:disabled {
+      opacity: .6;
+      cursor: not-allowed;
+    }
+
+    /* spinner inside button */
+    .spinner {
+      display: inline-block;
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Inline message (error / empty) ───────────────── */
+    .inline-msg {
+      text-align: center;
+      font-size: .84rem;
+      margin-top: .75rem;
+      min-height: 1.2em;
+    }
+
+    .inline-msg.error { color: var(--error); }
+
+    /* ── Result ───────────────────────────────────────── */
+    .result-container {
+      margin-top: 1.5rem;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity .45s ease, transform .45s ease;
+      pointer-events: none;
+    }
+
+    .result-container.visible {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+
+    .result-box {
+      padding: 1.4rem 1.25rem;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      text-align: center;
+    }
+
+    .result-box.positive { background: var(--positive-bg); border-color: rgba(52,211,153,.2); }
+    .result-box.negative { background: var(--negative-bg); border-color: rgba(248,113,113,.2); }
+
+    .sentiment-label {
+      font-size: 1.35rem;
+      font-weight: 700;
+      letter-spacing: -.01em;
+    }
+
+    .result-box.positive .sentiment-label { color: var(--positive); }
+    .result-box.negative .sentiment-label { color: var(--negative); }
+
+    .confidence-label {
+      font-size: .82rem;
+      color: var(--text-dim);
+      margin-top: .3rem;
+    }
+
+    /* ── Examples ─────────────────────────────────────── */
+    .examples {
+      margin-top: 1.75rem;
+      border-top: 1px solid var(--border);
+      padding-top: 1.25rem;
+    }
+
+    .examples-title {
+      font-size: .78rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      font-weight: 600;
+      margin-bottom: .75rem;
+    }
+
+    .example-btns {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .5rem;
+    }
+
+    .example-btn {
+      flex: 1 1 calc(50% - .25rem);
+      padding: .6rem .85rem;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: var(--font);
+      font-size: .78rem;
+      line-height: 1.45;
+      cursor: pointer;
+      text-align: left;
+      transition: border-color .2s, background .2s;
+    }
+
+    .example-btn:hover {
+      border-color: var(--accent);
+      background: rgba(124, 92, 252, .06);
+    }
+
+    /* small tag inside example button */
+    .example-btn .tag {
+      display: inline-block;
+      font-size: .65rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      padding: .1rem .4rem;
+      border-radius: 4px;
+      margin-bottom: .3rem;
+    }
+
+    .tag.pos  { background: var(--positive-bg); color: var(--positive); }
+    .tag.neg  { background: var(--negative-bg); color: var(--negative); }
+    .tag.tricky { background: rgba(250, 204, 21, .1); color: #facc15; }
+
+    /* ── Responsive ───────────────────────────────────── */
+    @media (max-width: 480px) {
+      .card { padding: 2rem 1.25rem 1.5rem; }
+      .header h1 { font-size: 1.25rem; }
+      .example-btn { flex: 1 1 100%; }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="card" role="main">
+    <div class="header">
+      <h1>Movie Review Sentiment Analyzer</h1>
+      <p>Powered by a fine-tuned DistilBERT transformer</p>
+    </div>
+
+    <div class="input-group">
+      <textarea
+        id="review-input"
+        placeholder="Paste a movie review..."
+        aria-label="Movie review text"
+      ></textarea>
+    </div>
+    <div class="char-count" id="char-count">0 characters</div>
+
+    <button id="analyze-btn" type="button">Analyze Sentiment</button>
+
+    <div class="inline-msg" id="inline-msg" role="alert"></div>
+
+    <div class="result-container" id="result-container">
+      <div class="result-box" id="result-box">
+        <div class="sentiment-label" id="sentiment-label"></div>
+        <div class="confidence-label" id="confidence-label"></div>
+      </div>
+    </div>
+
+    <div class="examples">
+      <div class="examples-title">Try an example</div>
+      <div class="example-btns" id="example-btns"></div>
+    </div>
+  </main>
+
+  <script>
+    // ── Elements ──────────────────────────────────────
+    const textarea   = document.getElementById('review-input');
+    const charCount  = document.getElementById('char-count');
+    const btn        = document.getElementById('analyze-btn');
+    const msg        = document.getElementById('inline-msg');
+    const resultWrap = document.getElementById('result-container');
+    const resultBox  = document.getElementById('result-box');
+    const sentLabel  = document.getElementById('sentiment-label');
+    const confLabel  = document.getElementById('confidence-label');
+    const exBtnsWrap = document.getElementById('example-btns');
+
+    const API_URL = 'http://127.0.0.1:8000/predict';
+
+    // ── Example reviews ──────────────────────────────
+    const examples = [
+      {
+        tag: 'pos', tagText: 'Positive',
+        short: 'Genuine praise',
+        text: 'A beautifully crafted film with outstanding performances from the entire cast. The cinematography was breathtaking and the story kept me engaged from start to finish. One of the best movies I\'ve seen this year.',
+      },
+      {
+        tag: 'neg', tagText: 'Negative',
+        short: 'Clear dislike',
+        text: 'What a waste of two hours. The plot made no sense, the dialogue was painfully cliché, and the acting felt wooden throughout. I kept checking my watch hoping it would end soon.',
+      },
+      {
+        tag: 'tricky', tagText: 'Tricky',
+        short: 'Sad words, positive review',
+        text: 'A heartbreaking and deeply sad story about loss and grief, but it\'s told with such tenderness and honesty that it becomes one of the most beautiful films I\'ve ever seen. I cried multiple times — not because it was bad, but because it was so profoundly moving.',
+      },
+      {
+        tag: 'tricky', tagText: 'Tricky',
+        short: 'Mixed language, positive overall',
+        text: 'The first thirty minutes are painfully slow and I almost gave up, but I\'m so glad I didn\'t. The second half completely transforms the film — the twist is genuinely shocking, the emotional payoff is earned, and the final scene left me speechless. A rough start to a brilliant movie.',
+      },
+    ];
+
+    // Render example buttons
+    examples.forEach((ex) => {
+      const b = document.createElement('button');
+      b.className = 'example-btn';
+      b.type = 'button';
+      b.innerHTML = `<span class="tag ${ex.tag}">${ex.tagText}</span><br>${ex.short}`;
+      b.addEventListener('click', () => {
+        textarea.value = ex.text;
+        textarea.dispatchEvent(new Event('input'));
+        textarea.focus();
+      });
+      exBtnsWrap.appendChild(b);
+    });
+
+    // ── Character count ──────────────────────────────
+    textarea.addEventListener('input', () => {
+      const len = textarea.value.length;
+      charCount.textContent = `${len} character${len !== 1 ? 's' : ''}`;
+    });
+
+    // ── Analyze ──────────────────────────────────────
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+
+      // Clear previous state
+      msg.textContent = '';
+      msg.className = 'inline-msg';
+      resultWrap.classList.remove('visible');
+
+      const text = textarea.value.trim();
+      if (!text) {
+        msg.textContent = 'Please enter a review';
+        msg.classList.add('error');
+        return;
+      }
+
+      // Loading state
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Analyzing\u2026';
+
+      try {
+        const res = await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+        });
+
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        const data = await res.json();
+        showResult(data);
+      } catch (err) {
+        msg.textContent = "Couldn\u2019t reach the server \u2014 is the API running?";
+        msg.classList.add('error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Analyze Sentiment';
+      }
+    });
+
+    function showResult({ sentiment, confidence }) {
+      const isPositive = sentiment === 'Positive';
+      resultBox.className = `result-box ${isPositive ? 'positive' : 'negative'}`;
+      sentLabel.textContent = sentiment;
+      confLabel.textContent = `Confidence: ${(confidence * 100).toFixed(1)}%`;
+
+      // Force reflow so the transition replays if already visible
+      resultWrap.classList.remove('visible');
+      void resultWrap.offsetWidth;
+      resultWrap.classList.add('visible');
+    }
+  </script>
+</body>
+</html>
